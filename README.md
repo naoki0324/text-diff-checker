@@ -17,7 +17,7 @@
 
 ### システム要件
 
-- Node.js (v18以上推奨)
+- Node.js 22.12以上（動作確認: 22.22.0）
 - npm
 
 ### インストール
@@ -43,6 +43,84 @@ npm run dev
 ```
 
 起動後、 [http://localhost:3000](http://localhost:3000) にアクセスしてください。
+
+## テスト
+
+既存依存をインストールした状態で `npm test` を実行します。
+共有比較関数を `tsconfig.test.json` でNode向けにコンパイルし、Node標準の
+テストランナーで同一・追加・削除・変更・空文字・日本語・改行等を検証します。
+続けてMCPをビルドし、実プロセスへのstdio通信と公式SDKクライアントからの呼び出しを検証します。
+個別実行は `npm run test:unit` / `npm run test:mcp` です。
+テスト用の生成物は `dist/test/`、MCP本体は `dist-mcp/` に出力します。
+
+比較関数は `src/lib/diff.ts` の `generateDiff(before, after)` です。
+行はLFで分割し、空文字は空の1行、末尾LFは末尾の空行として扱います。
+CRLFやUnicodeの正規化は行いません。同一入力も共通行を返しますが、Web画面は
+従来どおり「差は見つかりませんでした！」を表示します。
+
+## ローカルMCP（stdio）
+
+公式TypeScript SDK v2を使う、テキスト比較専用のローカルMCPです。
+リポジトリ直下でビルドし、Nodeで直接起動します。
+
+```bash
+npm run build:mcp
+node ./dist-mcp/mcp/server.js
+```
+
+MCPクライアントへ登録するときは、Node実行ファイルと生成済み
+`dist-mcp/mcp/server.js` の絶対パスを指定してください。
+起動時のビルドや `npm run` は不要です。stdoutはMCP通信専用です。
+起動・通信エラー等の診断は、入力本文を含めずstderrへ出します。
+stdinが閉じられたとき、またはSIGINT / SIGTERMで終了します。
+
+ツールは `compare_texts` 一つです。`before`・`after` は必須の文字列で、
+空文字を受け付けます。欠落・型不正・上限超過はエラーです。
+各入力は **500行かつUTF-8で32KiB以下** とし、超過時は切り詰めません。
+行数はLFで分割した要素数で、空文字も1行、末尾LFも空行1行と数えます。
+この上限は既存LCSの計算量に基づく初期設定で、応答時間の保証ではありません。
+
+入力例:
+
+```json
+{ "before": "りんご\nみかん", "after": "りんご\nぶどう" }
+```
+
+成功結果の `structuredContent` は以下です。
+同じJSONをテキスト形式の `content` でも返します。
+
+```json
+{
+  "lines": [
+    { "type": "common", "value": "りんご" },
+    { "type": "removed", "value": "みかん" },
+    { "type": "added", "value": "ぶどう" }
+  ]
+}
+```
+
+`common` は同一、`added` は追加、`removed` は削除です。
+変更は削除＋追加で表現します。空文字同士の結果は共通の空行1件です。
+末尾改行の差は空行の追加・削除として返し、CRLFやUnicodeの正規化は行いません。
+MCPはWebと同じ `src/lib/diff.ts` を使い、外部API・翻訳・ファイル操作を行いません。
+APIキーや環境ファイルは不要で、入力本文をログやファイルへ保存しません。
+Codexへの登録・設定変更は、このリポジトリのビルドやテストでは行いません。
+
+### MCPだけをローカルに残す場合
+
+ソースをGitHubへ保存した後も、登録済みの絶対パスを使う場合は、
+プロジェクトフォルダ自体を削除せず、次の3点を現在の場所に残してください。
+
+- `dist-mcp/`: MCPサーバーと共有比較関数のビルド済みファイル
+- `node_modules/`: 実行に必要なSDK・Zodとその依存パッケージ
+- `package.json`: JavaScriptをES modulesとして実行するための`type: module`宣言
+
+`dist-mcp/`はGit管理対象外です。ソースから再生成する場合は、GitHubに保存した
+ブランチを取得し、依存関係を復元して`npm run build:mcp`を実行します。
+MCPの配置先を変更する場合は、クライアントに登録した起動パスの変更も必要です。
+
+SDKの仕様は[公式stdioガイド](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio.html)と
+[公式ツールガイド](https://ts.sdk.modelcontextprotocol.io/v2/servers/tools.html)を参照してください。
 
 ## 📁 プロジェクト構造
 
